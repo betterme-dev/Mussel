@@ -46,7 +46,9 @@ class ServerManager {
                 }
 
                 let result = self?.run(command: command)
-                return .ok(.text("Ran command: \(command) \n Result:\n \(result ?? "Empty result")"))
+                let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+                print(responseInfo)
+                return .ok(.text(responseInfo))
             } else {
                 return .internalServerError
             }
@@ -66,9 +68,10 @@ class ServerManager {
             }
 
             let command = "xcrun simctl openurl \(simId) \"\(universalLink)\""
-            self?.run(command: command)
             let result = self?.run(command: command)
-            return .ok(.text("Ran command: \(command) \n Result:\n \(result ?? "Empty result")"))
+            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            print(responseInfo)
+            return .ok(.text(responseInfo))
         }
 
         server.POST[universalLinkEndpoint] = response
@@ -86,7 +89,9 @@ class ServerManager {
 
             let command = "xcrun simctl uninstall \(simId) \(appBundleId)"
             let result = self?.run(command: command)
-            return .ok(.text("Ran command: \(command) \n Result:\n \(result ?? "Empty result")"))
+            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            print(responseInfo)
+            return .ok(.text(responseInfo))
         }
 
         server.POST[uninstallAppEndpoint] = response
