@@ -109,7 +109,7 @@ class ServerManager {
     }
     
     private func setupEraseEndpoint() {
-        executeCommand(command: "erase", endpoint: "/simulatorEraseDevice")
+        executeCommand(command: "erase", endpoint: "/simulatorErase")
     }
 
     private func createTemporaryPushFile(payload: JSON) -> URL? {
