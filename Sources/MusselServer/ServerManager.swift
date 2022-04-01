@@ -16,6 +16,9 @@ class ServerManager {
             setupPushEndpoint()
             setupUniversalLinkEndpoint()
             setupUninstallAppEndpoint()
+            setupEraseEndpoint()
+            setupBootEndpoint()
+            setupShutdownEndpoint()
         } catch {
             _ = SocketError.bindFailed(Errno.description()).localizedDescription
             print("Error starting Mussel server")
@@ -96,6 +99,18 @@ class ServerManager {
 
         server.POST[uninstallAppEndpoint] = response
     }
+    
+    private func setupShutdownEndpoint() {
+        executeCommand(command: "shutdown", endpoint: "/simulatorShutdown")
+    }
+    
+    private func setupBootEndpoint() {
+        executeCommand(command: "boot", endpoint: "/simulatorBoot")
+    }
+    
+    private func setupEraseEndpoint() {
+        executeCommand(command: "erase", endpoint: "/simulatorEraseDevice")
+    }
 
     private func createTemporaryPushFile(payload: JSON) -> URL? {
         let temporaryDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -110,6 +125,25 @@ class ServerManager {
             return nil
         }
         return temporaryFileURL
+    }
+    
+    private func executeCommand(command: String, endpoint: String) {
+        let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
+            guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
+                  let json = serializedObject as? JSON,
+                  let simId = json["simulatorId"] as? String
+            else {
+                return HttpResponse.badRequest(nil)
+            }
+
+            let command = "xcrun simctl \(command) \(simId)"
+            let result = self?.run(command: command)
+            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            print(responseInfo)
+            return .ok(.text(responseInfo))
+        }
+
+        server.POST[endpoint] = response
     }
 
     @discardableResult func run(command: String) -> String {
