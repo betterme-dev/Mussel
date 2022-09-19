@@ -9,6 +9,7 @@ class ServerManager {
     private let pushEndpoint = "/simulatorPush"
     private let universalLinkEndpoint = "/simulatorUniversalLink"
     private let uninstallAppEndpoint = "/simulatorUninstallApp"
+    private let overrideStatusBarEndpoint = "/overrideStatusBar"
 
     public func startServer() {
         do {
@@ -16,6 +17,7 @@ class ServerManager {
             setupPushEndpoint()
             setupUniversalLinkEndpoint()
             setupUninstallAppEndpoint()
+            setupOverrideStatusBarEndpoint()
         } catch {
             _ = SocketError.bindFailed(Errno.description()).localizedDescription
             print("Error starting Mussel server")
@@ -75,6 +77,25 @@ class ServerManager {
         }
 
         server.POST[universalLinkEndpoint] = response
+    }
+    
+    private func setupOverrideStatusBarEndpoint() {
+        let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
+            guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
+                  let json = serializedObject as? JSON,
+                  let simId = json["simulatorId"] as? String
+            else {
+                return HttpResponse.badRequest(nil)
+            }
+
+            let command = "xcrun simctl status_bar \(simId) override --time 16:20 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100"
+            let result = self?.run(command: command)
+            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            print(responseInfo)
+            return .ok(.text(responseInfo))
+        }
+
+        server.POST[overrideStatusBarEndpoint] = response
     }
     
     private func setupUninstallAppEndpoint() {
