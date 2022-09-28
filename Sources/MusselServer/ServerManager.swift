@@ -88,7 +88,7 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl status_bar \(simId) override --time 16:20 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100"
+            let command = "xcrun simctl status_bar \(simId) override --time 2007-01-09T09:41:00+01:00"
             let result = self?.run(command: command)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
