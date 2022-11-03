@@ -32,13 +32,15 @@ class ServerManager {
                   let json = serializedObject as? JSON,
                   let simId = json["simulatorId"] as? String,
                   let appBundleId = json["appBundleId"] as? String,
+                  let isClone = json["isDeviceClone"] as? Bool,
                   let payload = json["pushPayload"] as? JSON
             else {
                 return HttpResponse.badRequest(nil)
             }
-
+            
+            let simCtlOptions = isClone ? "--set testing" : ""
             if let pushFileUrl = self?.createTemporaryPushFile(payload: payload) {
-                let command = "xcrun simctl push \(simId) \(appBundleId) \(pushFileUrl.path)"
+                let command = "xcrun simctl \(simCtlOptions) push \(simId) \(appBundleId) \(pushFileUrl.path)"
                 self?.run(command: command)
 
                 do {
@@ -63,13 +65,15 @@ class ServerManager {
         let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
             guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
                   let json = serializedObject as? JSON,
+                  let isClone = json["isDeviceClone"] as? Bool,
                   let simId = json["simulatorId"] as? String,
                   let universalLink = json["link"] as? String
             else {
                 return HttpResponse.badRequest(nil)
             }
-
-            let command = "xcrun simctl openurl \(simId) \"\(universalLink)\""
+            
+            let simCtlOptions = isClone ? "--set testing" : ""
+            let command = "xcrun simctl \(simCtlOptions) openurl \(simId) \"\(universalLink)\""
             let result = self?.run(command: command)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
@@ -83,12 +87,14 @@ class ServerManager {
         let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
             guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
                   let json = serializedObject as? JSON,
+                  let isClone = json["isDeviceClone"] as? Bool,
                   let simId = json["simulatorId"] as? String
             else {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl status_bar \(simId) override --time 2007-01-09T09:41:00+01:00"
+            let simCtlOptions = isClone ? "--set testing" : ""
+            let command = "xcrun simctl \(simCtlOptions) status_bar \(simId) override --time 2007-01-09T09:41:00+01:00"
             let result = self?.run(command: command)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
@@ -102,13 +108,15 @@ class ServerManager {
         let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
             guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
                   let json = serializedObject as? JSON,
+                  let isClone = json["isDeviceClone"] as? Bool,
                   let simId = json["simulatorId"] as? String,
                   let appBundleId = json["appBundleId"] as? String
             else {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl uninstall \(simId) \(appBundleId)"
+            let simCtlOptions = isClone ? "--set testing" : ""
+            let command = "xcrun simctl \(simCtlOptions) uninstall \(simId) \(appBundleId)"
             let result = self?.run(command: command)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
