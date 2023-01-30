@@ -10,6 +10,7 @@ class ServerManager {
     private let universalLinkEndpoint = "/simulatorUniversalLink"
     private let uninstallAppEndpoint = "/simulatorUninstallApp"
     private let overrideStatusBarEndpoint = "/overrideStatusBar"
+    private let addmediaEndpoint = "/addmedia"
 
     public func startServer() {
         do {
@@ -18,6 +19,7 @@ class ServerManager {
             setupUniversalLinkEndpoint()
             setupUninstallAppEndpoint()
             setupOverrideStatusBarEndpoint()
+            setupMediaUploadEndpoint()
         } catch {
             _ = SocketError.bindFailed(Errno.description()).localizedDescription
             print("Error starting Mussel server")
@@ -77,6 +79,26 @@ class ServerManager {
         }
 
         server.POST[universalLinkEndpoint] = response
+    }
+    
+    private func setupMediaUploadEndpoint() {
+        let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
+            guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
+                  let json = serializedObject as? JSON,
+                  let simId = json["simulatorId"] as? String,
+                  let path = json["path"] as? String
+            else {
+                return HttpResponse.badRequest(nil)
+            }
+
+            let command = "xcrun simctl addmedia \(simId) \(path)"
+            let result = self?.run(command: command)
+            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            print(responseInfo)
+            return .ok(.text(responseInfo))
+        }
+
+        server.POST[addmediaEndpoint] = response
     }
     
     private func setupOverrideStatusBarEndpoint() {
