@@ -179,11 +179,27 @@ class ServerManager {
     }
 
     @discardableResult func run(command: String) -> String {
+        var result = launch(command: command)
+        // xcodebuild's parallel-testing simulator clones live in a separate device set
+        // that plain simctl cannot see ("Invalid device") — retry against the testing set.
+        if result.contains("Invalid device"), command.hasPrefix("xcrun simctl ") {
+            let testingSetCommand = command.replacingOccurrences(
+                of: "xcrun simctl ",
+                with: "xcrun simctl --set testing "
+            )
+            print("Retrying with testing device set: \(testingSetCommand)")
+            result = launch(command: testingSetCommand)
+        }
+        return result
+    }
+
+    private func launch(command: String) -> String {
         let pipe = Pipe()
         let task = Process()
         task.launchPath = "/bin/sh"
         task.arguments = ["-c", String(format: "%@", command)]
         task.standardOutput = pipe
+        task.standardError = pipe
         let file = pipe.fileHandleForReading
         task.launch()
         if let result = NSString(data: file.readDataToEndOfFile(), encoding: String.Encoding.utf8.rawValue) {
