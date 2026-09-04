@@ -43,7 +43,7 @@ class ServerManager {
 
             if let pushFileUrl = self?.createTemporaryPushFile(payload: payload) {
                 let command = "xcrun simctl push \(simId) \(appBundleId) \(pushFileUrl.path)"
-                self?.run(command: command)
+                self?.run(command: command, simulatorId: simId)
 
                 do {
                     try FileManager.default.removeItem(at: pushFileUrl)
@@ -51,7 +51,7 @@ class ServerManager {
                     print("Error removing file!")
                 }
 
-                let result = self?.run(command: command)
+                let result = self?.run(command: command, simulatorId: simId)
                 let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
                 print(responseInfo)
                 return .ok(.text(responseInfo))
@@ -74,7 +74,7 @@ class ServerManager {
             }
 
             let command = "xcrun simctl openurl \(simId) \"\(universalLink)\""
-            let result = self?.run(command: command)
+            let result = self?.run(command: command, simulatorId: simId)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
@@ -95,7 +95,7 @@ class ServerManager {
             }
 
             let command = "xcrun simctl privacy \(simulatorId) reset \(permission) \(appBundleId)"
-            let result = self?.run(command: command)
+            let result = self?.run(command: command, simulatorId: simulatorId)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
@@ -115,7 +115,7 @@ class ServerManager {
             }
 
             let command = "xcrun simctl addmedia \(simId) \(path)"
-            let result = self?.run(command: command)
+            let result = self?.run(command: command, simulatorId: simId)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
@@ -134,7 +134,7 @@ class ServerManager {
             }
 
             let command = "xcrun simctl status_bar \(simId) override --time 2007-01-09T09:41:00+01:00"
-            let result = self?.run(command: command)
+            let result = self?.run(command: command, simulatorId: simId)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
@@ -154,7 +154,7 @@ class ServerManager {
             }
 
             let command = "xcrun simctl uninstall \(simId) \(appBundleId)"
-            let result = self?.run(command: command)
+            let result = self?.run(command: command, simulatorId: simId)
             let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
@@ -178,19 +178,46 @@ class ServerManager {
         return temporaryFileURL
     }
 
-    @discardableResult func run(command: String) -> String {
-        var result = launch(command: command)
+    private var testingSetSimulatorIds = Set<String>()
+    private let testingSetLock = NSLock()
+
+    @discardableResult func run(command: String, simulatorId: String? = nil) -> String {
+        var effectiveCommand = command
+        if let simulatorId, isInTestingSet(simulatorId) {
+            effectiveCommand = testingSetVariant(of: command)
+        }
+
+        var result = launch(command: effectiveCommand)
         // xcodebuild's parallel-testing simulator clones live in a separate device set
-        // that plain simctl cannot see ("Invalid device") — retry against the testing set.
-        if result.contains("Invalid device"), command.hasPrefix("xcrun simctl ") {
-            let testingSetCommand = command.replacingOccurrences(
-                of: "xcrun simctl ",
-                with: "xcrun simctl --set testing "
-            )
+        // that plain simctl cannot see ("Invalid device") — retry against the testing set
+        // and remember the simulator so its next commands skip the failing attempt.
+        if result.contains("Invalid device"),
+           effectiveCommand.hasPrefix("xcrun simctl "),
+           !effectiveCommand.contains("--set testing") {
+            let testingSetCommand = testingSetVariant(of: command)
             print("Retrying with testing device set: \(testingSetCommand)")
             result = launch(command: testingSetCommand)
+            if let simulatorId, !result.contains("Invalid device") {
+                remember(testingSetSimulatorId: simulatorId)
+            }
         }
         return result
+    }
+
+    private func testingSetVariant(of command: String) -> String {
+        command.replacingOccurrences(of: "xcrun simctl ", with: "xcrun simctl --set testing ")
+    }
+
+    private func isInTestingSet(_ simulatorId: String) -> Bool {
+        testingSetLock.lock()
+        defer { testingSetLock.unlock() }
+        return testingSetSimulatorIds.contains(simulatorId)
+    }
+
+    private func remember(testingSetSimulatorId: String) {
+        testingSetLock.lock()
+        defer { testingSetLock.unlock() }
+        testingSetSimulatorIds.insert(testingSetSimulatorId)
     }
 
     private func launch(command: String) -> String {
