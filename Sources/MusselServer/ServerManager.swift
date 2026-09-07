@@ -42,8 +42,8 @@ class ServerManager {
             }
 
             if let pushFileUrl = self?.createTemporaryPushFile(payload: payload) {
-                let command = "xcrun simctl push \(simId) \(appBundleId) \(pushFileUrl.path)"
-                self?.run(command: command)
+                let command = ["xcrun", "simctl", "push", simId, appBundleId, pushFileUrl.path]
+                let result = self?.run(command: command, simulatorId: simId)
 
                 do {
                     try FileManager.default.removeItem(at: pushFileUrl)
@@ -51,8 +51,7 @@ class ServerManager {
                     print("Error removing file!")
                 }
 
-                let result = self?.run(command: command)
-                let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+                let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
                 print(responseInfo)
                 return .ok(.text(responseInfo))
             } else {
@@ -73,9 +72,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl openurl \(simId) \"\(universalLink)\""
-            let result = self?.run(command: command)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let command = ["xcrun", "simctl", "openurl", simId, universalLink]
+            let result = self?.run(command: command, simulatorId: simId)
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -94,9 +93,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl privacy \(simulatorId) reset \(permission) \(appBundleId)"
-            let result = self?.run(command: command)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let command = ["xcrun", "simctl", "privacy", simulatorId, "reset", permission, appBundleId]
+            let result = self?.run(command: command, simulatorId: simulatorId)
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -114,9 +113,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl addmedia \(simId) \(path)"
-            let result = self?.run(command: command)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let command = ["xcrun", "simctl", "addmedia", simId, path]
+            let result = self?.run(command: command, simulatorId: simId)
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -133,9 +132,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl status_bar \(simId) override --time 2007-01-09T09:41:00+01:00"
-            let result = self?.run(command: command)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let command = ["xcrun", "simctl", "status_bar", simId, "override", "--time", "2007-01-09T09:41:00+01:00"]
+            let result = self?.run(command: command, simulatorId: simId)
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -153,9 +152,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl uninstall \(simId) \(appBundleId)"
-            let result = self?.run(command: command)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let command = ["xcrun", "simctl", "uninstall", simId, appBundleId]
+            let result = self?.run(command: command, simulatorId: simId)
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -178,21 +177,100 @@ class ServerManager {
         return temporaryFileURL
     }
 
-    @discardableResult func run(command: String) -> String {
+    private var testingSetSimulatorIds = Set<String>()
+    private let testingSetLock = NSLock()
+
+    @discardableResult func run(command: [String], simulatorId: String? = nil) -> String {
+        var effectiveCommand = command
+        if let simulatorId, isInTestingSet(simulatorId) {
+            effectiveCommand = testingSetVariant(of: command)
+        }
+
+        var result = launch(command: effectiveCommand)
+        // xcodebuild's parallel-testing simulator clones live in a separate device set
+        // that plain simctl cannot see ("Invalid device") — retry against the testing set
+        // and remember the simulator so its next commands skip the failing attempt.
+        if result.contains("Invalid device"),
+           !usesDeviceSet(effectiveCommand) {
+            let testingSetCommand = testingSetVariant(of: command)
+            print("Retrying with testing device set: \(testingSetCommand.joined(separator: " "))")
+            result = launch(command: testingSetCommand)
+            if let simulatorId, !result.contains("Invalid device") {
+                remember(testingSetSimulatorId: simulatorId)
+            }
+        }
+        return result
+    }
+
+    // Positional check: a device set can only appear right after `xcrun simctl`, so argument
+    // VALUES that happen to equal "--set" can't be mistaken for the flag.
+    private func usesDeviceSet(_ command: [String]) -> Bool {
+        command.count >= 3 && command[0] == "xcrun" && command[1] == "simctl" && command[2] == "--set"
+    }
+
+    private func testingSetVariant(of command: [String]) -> [String] {
+        guard command.count >= 2, command[0] == "xcrun", command[1] == "simctl",
+              !usesDeviceSet(command)
+        else { return command }
+        var variant = command
+        variant.insert(contentsOf: ["--set", "testing"], at: 2)
+        return variant
+    }
+
+    private func isInTestingSet(_ simulatorId: String) -> Bool {
+        testingSetLock.lock()
+        defer { testingSetLock.unlock() }
+        return testingSetSimulatorIds.contains(simulatorId)
+    }
+
+    private func remember(testingSetSimulatorId: String) {
+        testingSetLock.lock()
+        defer { testingSetLock.unlock() }
+        // Ephemeral clone UDIDs accumulate in long-lived servers; a stale entry only costs
+        // one extra retry, so resetting is safe.
+        if testingSetSimulatorIds.count >= 512 {
+            testingSetSimulatorIds.removeAll()
+        }
+        testingSetSimulatorIds.insert(testingSetSimulatorId)
+    }
+
+    private func launch(command: [String]) -> String {
         let pipe = Pipe()
         let task = Process()
-        task.launchPath = "/bin/sh"
-        task.arguments = ["-c", String(format: "%@", command)]
-        task.standardOutput = pipe
-        let file = pipe.fileHandleForReading
-        task.launch()
-        if let result = NSString(data: file.readDataToEndOfFile(), encoding: String.Encoding.utf8.rawValue) {
-            print(result as String)
-            return result as String
+        // argv execution — request values never pass through a shell, so they can't inject
+        // commands. xcrun is addressed by absolute path so a minimal launch PATH can't break it.
+        if command.first == "xcrun" {
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            task.arguments = Array(command.dropFirst())
         } else {
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            task.arguments = command
+        }
+        task.standardOutput = pipe
+        task.standardError = pipe
+        let file = pipe.fileHandleForReading
+        do {
+            try task.run()
+        } catch {
+            let errorString = "--- Failed to start command: \(error.localizedDescription) ---"
+            print(errorString)
+            return errorString
+        }
+        let output = NSString(data: file.readDataToEndOfFile(), encoding: String.Encoding.utf8.rawValue) as String?
+        task.waitUntilExit()
+
+        guard var result = output else {
             let errorString = "--- Error running command - Unable to initialize string from file data ---"
             print(errorString)
             return errorString
         }
+        // A failing command would otherwise look like success to callers that don't parse the text
+        if task.terminationStatus != 0 {
+            let failure = "--- Command failed with exit status \(task.terminationStatus) ---"
+            let hasOutput = !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            result = hasOutput ? "\(result)\n\(failure)" : failure
+        }
+        print(result)
+        return result
     }
 }
