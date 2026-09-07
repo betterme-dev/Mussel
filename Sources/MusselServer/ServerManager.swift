@@ -42,8 +42,8 @@ class ServerManager {
             }
 
             if let pushFileUrl = self?.createTemporaryPushFile(payload: payload) {
-                let command = "xcrun simctl push \(simId) \(appBundleId) \(pushFileUrl.path)"
-                self?.run(command: command, simulatorId: simId)
+                let command = ["xcrun", "simctl", "push", simId, appBundleId, pushFileUrl.path]
+                let result = self?.run(command: command, simulatorId: simId)
 
                 do {
                     try FileManager.default.removeItem(at: pushFileUrl)
@@ -51,8 +51,7 @@ class ServerManager {
                     print("Error removing file!")
                 }
 
-                let result = self?.run(command: command, simulatorId: simId)
-                let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+                let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
                 print(responseInfo)
                 return .ok(.text(responseInfo))
             } else {
@@ -73,9 +72,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl openurl \(simId) \"\(universalLink)\""
+            let command = ["xcrun", "simctl", "openurl", simId, universalLink]
             let result = self?.run(command: command, simulatorId: simId)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -94,9 +93,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl privacy \(simulatorId) reset \(permission) \(appBundleId)"
+            let command = ["xcrun", "simctl", "privacy", simulatorId, "reset", permission, appBundleId]
             let result = self?.run(command: command, simulatorId: simulatorId)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -114,9 +113,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl addmedia \(simId) \(path)"
+            let command = ["xcrun", "simctl", "addmedia", simId, path]
             let result = self?.run(command: command, simulatorId: simId)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -133,9 +132,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl status_bar \(simId) override --time 2007-01-09T09:41:00+01:00"
+            let command = ["xcrun", "simctl", "status_bar", simId, "override", "--time", "2007-01-09T09:41:00+01:00"]
             let result = self?.run(command: command, simulatorId: simId)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -153,9 +152,9 @@ class ServerManager {
                 return HttpResponse.badRequest(nil)
             }
 
-            let command = "xcrun simctl uninstall \(simId) \(appBundleId)"
+            let command = ["xcrun", "simctl", "uninstall", simId, appBundleId]
             let result = self?.run(command: command, simulatorId: simId)
-            let responseInfo = "Ran command: \(command) \n Result:\n \(result ?? "Empty result")"
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
             print(responseInfo)
             return .ok(.text(responseInfo))
         }
@@ -181,7 +180,7 @@ class ServerManager {
     private var testingSetSimulatorIds = Set<String>()
     private let testingSetLock = NSLock()
 
-    @discardableResult func run(command: String, simulatorId: String? = nil) -> String {
+    @discardableResult func run(command: [String], simulatorId: String? = nil) -> String {
         var effectiveCommand = command
         if let simulatorId, isInTestingSet(simulatorId) {
             effectiveCommand = testingSetVariant(of: command)
@@ -192,10 +191,9 @@ class ServerManager {
         // that plain simctl cannot see ("Invalid device") — retry against the testing set
         // and remember the simulator so its next commands skip the failing attempt.
         if result.contains("Invalid device"),
-           effectiveCommand.hasPrefix("xcrun simctl "),
-           !effectiveCommand.contains("--set testing") {
+           !effectiveCommand.contains("--set") {
             let testingSetCommand = testingSetVariant(of: command)
-            print("Retrying with testing device set: \(testingSetCommand)")
+            print("Retrying with testing device set: \(testingSetCommand.joined(separator: " "))")
             result = launch(command: testingSetCommand)
             if let simulatorId, !result.contains("Invalid device") {
                 remember(testingSetSimulatorId: simulatorId)
@@ -204,8 +202,11 @@ class ServerManager {
         return result
     }
 
-    private func testingSetVariant(of command: String) -> String {
-        command.replacingOccurrences(of: "xcrun simctl ", with: "xcrun simctl --set testing ")
+    private func testingSetVariant(of command: [String]) -> [String] {
+        guard command.count >= 2, command[0] == "xcrun", command[1] == "simctl" else { return command }
+        var variant = command
+        variant.insert(contentsOf: ["--set", "testing"], at: 2)
+        return variant
     }
 
     private func isInTestingSet(_ simulatorId: String) -> Bool {
@@ -220,11 +221,12 @@ class ServerManager {
         testingSetSimulatorIds.insert(testingSetSimulatorId)
     }
 
-    private func launch(command: String) -> String {
+    private func launch(command: [String]) -> String {
         let pipe = Pipe()
         let task = Process()
-        task.launchPath = "/bin/sh"
-        task.arguments = ["-c", String(format: "%@", command)]
+        // argv execution — request values never pass through a shell, so they can't inject commands
+        task.launchPath = "/usr/bin/env"
+        task.arguments = command
         task.standardOutput = pipe
         task.standardError = pipe
         let file = pipe.fileHandleForReading
