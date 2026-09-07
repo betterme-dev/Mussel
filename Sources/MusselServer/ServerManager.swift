@@ -220,6 +220,11 @@ class ServerManager {
     private func remember(testingSetSimulatorId: String) {
         testingSetLock.lock()
         defer { testingSetLock.unlock() }
+        // Ephemeral clone UDIDs accumulate in long-lived servers; a stale entry only costs
+        // one extra retry, so resetting is safe.
+        if testingSetSimulatorIds.count >= 512 {
+            testingSetSimulatorIds.removeAll()
+        }
         testingSetSimulatorIds.insert(testingSetSimulatorId)
     }
 
@@ -253,9 +258,11 @@ class ServerManager {
             print(errorString)
             return errorString
         }
-        // A failing command with empty output would otherwise look like success to callers
-        if task.terminationStatus != 0, result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            result = "--- Command failed with exit status \(task.terminationStatus) and no output ---"
+        // A failing command would otherwise look like success to callers that don't parse the text
+        if task.terminationStatus != 0 {
+            let failure = "--- Command failed with exit status \(task.terminationStatus) ---"
+            let hasOutput = !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            result = hasOutput ? "\(result)\n\(failure)" : failure
         }
         print(result)
         return result
