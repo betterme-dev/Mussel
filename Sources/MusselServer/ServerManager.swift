@@ -227,16 +227,22 @@ class ServerManager {
         // argv execution — request values never pass through a shell, so they can't inject
         // commands. xcrun is addressed by absolute path so a minimal launch PATH can't break it.
         if command.first == "xcrun" {
-            task.launchPath = "/usr/bin/xcrun"
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
             task.arguments = Array(command.dropFirst())
         } else {
-            task.launchPath = "/usr/bin/env"
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             task.arguments = command
         }
         task.standardOutput = pipe
         task.standardError = pipe
         let file = pipe.fileHandleForReading
-        task.launch()
+        do {
+            try task.run()
+        } catch {
+            let errorString = "--- Failed to start command: \(error.localizedDescription) ---"
+            print(errorString)
+            return errorString
+        }
         let output = NSString(data: file.readDataToEndOfFile(), encoding: String.Encoding.utf8.rawValue) as String?
         task.waitUntilExit()
 
