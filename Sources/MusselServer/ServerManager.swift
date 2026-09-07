@@ -224,9 +224,15 @@ class ServerManager {
     private func launch(command: [String]) -> String {
         let pipe = Pipe()
         let task = Process()
-        // argv execution — request values never pass through a shell, so they can't inject commands
-        task.launchPath = "/usr/bin/env"
-        task.arguments = command
+        // argv execution — request values never pass through a shell, so they can't inject
+        // commands. xcrun is addressed by absolute path so a minimal launch PATH can't break it.
+        if command.first == "xcrun" {
+            task.launchPath = "/usr/bin/xcrun"
+            task.arguments = Array(command.dropFirst())
+        } else {
+            task.launchPath = "/usr/bin/env"
+            task.arguments = command
+        }
         task.standardOutput = pipe
         task.standardError = pipe
         let file = pipe.fileHandleForReading
