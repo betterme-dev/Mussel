@@ -203,7 +203,9 @@ class ServerManager {
     }
 
     private func testingSetVariant(of command: [String]) -> [String] {
-        guard command.count >= 2, command[0] == "xcrun", command[1] == "simctl" else { return command }
+        guard command.count >= 2, command[0] == "xcrun", command[1] == "simctl",
+              !command.contains("--set")
+        else { return command }
         var variant = command
         variant.insert(contentsOf: ["--set", "testing"], at: 2)
         return variant
