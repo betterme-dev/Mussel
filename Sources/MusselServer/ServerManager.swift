@@ -237,13 +237,19 @@ class ServerManager {
         task.standardError = pipe
         let file = pipe.fileHandleForReading
         task.launch()
-        if let result = NSString(data: file.readDataToEndOfFile(), encoding: String.Encoding.utf8.rawValue) {
-            print(result as String)
-            return result as String
-        } else {
+        let output = NSString(data: file.readDataToEndOfFile(), encoding: String.Encoding.utf8.rawValue) as String?
+        task.waitUntilExit()
+
+        guard var result = output else {
             let errorString = "--- Error running command - Unable to initialize string from file data ---"
             print(errorString)
             return errorString
         }
+        // A failing command with empty output would otherwise look like success to callers
+        if task.terminationStatus != 0, result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result = "--- Command failed with exit status \(task.terminationStatus) and no output ---"
+        }
+        print(result)
+        return result
     }
 }
