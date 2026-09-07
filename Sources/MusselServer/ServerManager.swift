@@ -191,7 +191,7 @@ class ServerManager {
         // that plain simctl cannot see ("Invalid device") — retry against the testing set
         // and remember the simulator so its next commands skip the failing attempt.
         if result.contains("Invalid device"),
-           !effectiveCommand.contains("--set") {
+           !usesDeviceSet(effectiveCommand) {
             let testingSetCommand = testingSetVariant(of: command)
             print("Retrying with testing device set: \(testingSetCommand.joined(separator: " "))")
             result = launch(command: testingSetCommand)
@@ -202,9 +202,15 @@ class ServerManager {
         return result
     }
 
+    // Positional check: a device set can only appear right after `xcrun simctl`, so argument
+    // VALUES that happen to equal "--set" can't be mistaken for the flag.
+    private func usesDeviceSet(_ command: [String]) -> Bool {
+        command.count >= 3 && command[0] == "xcrun" && command[1] == "simctl" && command[2] == "--set"
+    }
+
     private func testingSetVariant(of command: [String]) -> [String] {
         guard command.count >= 2, command[0] == "xcrun", command[1] == "simctl",
-              !command.contains("--set")
+              !usesDeviceSet(command)
         else { return command }
         var variant = command
         variant.insert(contentsOf: ["--set", "testing"], at: 2)
