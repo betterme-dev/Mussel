@@ -12,6 +12,7 @@ class ServerManager {
     private let overrideStatusBarEndpoint = "/overrideStatusBar"
     private let addmediaEndpoint = "/addmedia"
     private let resetPermissionEndpoint = "/resetPermission"
+    private let grantPermissionEndpoint = "/grantPermission"
 
     public func startServer() {
         do {
@@ -22,6 +23,7 @@ class ServerManager {
             setupOverrideStatusBarEndpoint()
             setupMediaUploadEndpoint()
             setupResetPermissionEndpoint()
+            setupGrantPermissionEndpoint()
         } catch {
             _ = SocketError.bindFailed(Errno.description()).localizedDescription
             print("Error starting Mussel server")
@@ -102,7 +104,28 @@ class ServerManager {
 
         server.POST[resetPermissionEndpoint] = response
     }
-    
+
+    private func setupGrantPermissionEndpoint() {
+        let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
+            guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
+                  let json = serializedObject as? JSON,
+                  let simulatorId = json["simulatorId"] as? String,
+                  let appBundleId = json["appBundleId"] as? String,
+                  let permission = json["permission"] as? String
+            else {
+                return HttpResponse.badRequest(nil)
+            }
+
+            let command = ["xcrun", "simctl", "privacy", simulatorId, "grant", permission, appBundleId]
+            let result = self?.run(command: command, simulatorId: simulatorId)
+            let responseInfo = "Ran command: \(command.joined(separator: " ")) \n Result:\n \(result ?? "Empty result")"
+            print(responseInfo)
+            return .ok(.text(responseInfo))
+        }
+
+        server.POST[grantPermissionEndpoint] = response
+    }
+
     private func setupMediaUploadEndpoint() {
         let response: ((HttpRequest) -> HttpResponse) = { [weak self] request in
             guard let serializedObject = try? JSONSerialization.jsonObject(with: Data(request.body), options: []),
